@@ -103,7 +103,10 @@ const SignAndSpell: React.FC = () => {
     let camera: any = null;
     let hands: any = null;
 
+    let active = true;
+
     const onResults = (results: any) => {
+      if (!active) return;
       setLoading(false);
       
       canvas.width = containerRef.current?.clientWidth || 800;
@@ -186,7 +189,13 @@ const SignAndSpell: React.FC = () => {
       if (window.Camera) {
         camera = new window.Camera(video, {
           onFrame: async () => {
-            if (videoRef.current && hands) await hands.send({ image: videoRef.current });
+            if (videoRef.current && hands && active) {
+              try {
+                await hands.send({ image: videoRef.current });
+              } catch (err) {
+                console.warn("MediaPipe send error:", err);
+              }
+            }
           },
           width: 1280,
           height: 720,
@@ -196,15 +205,22 @@ const SignAndSpell: React.FC = () => {
     }
 
     return () => {
+      active = false;
       if (camera) camera.stop();
-      if (hands) hands.close();
+      if (hands) {
+        try {
+          hands.close();
+        } catch (err) {
+          console.warn("MediaPipe close error:", err);
+        }
+      }
     };
   }, [gameState.status, isAnalyzing]);
 
   return (
-    <div className="flex flex-col md:flex-row w-full h-screen bg-[#0a0a0a] text-white overflow-hidden font-sans">
-      {/* Left Side: Camera View */}
-      <div ref={containerRef} className="relative flex-1 bg-black overflow-hidden">
+    <div className="relative w-full h-screen bg-black text-white overflow-hidden font-sans">
+      {/* Full Screen Camera View */}
+      <div ref={containerRef} className="absolute inset-0 z-0">
         <video ref={videoRef} className="hidden" playsInline />
         <canvas ref={canvasRef} className="w-full h-full object-cover mirror" style={{ transform: 'scaleX(-1)' }} />
         
@@ -212,17 +228,6 @@ const SignAndSpell: React.FC = () => {
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 z-50">
             <Loader2 className="w-12 h-12 animate-spin text-emerald-500 mb-4" />
             <p className="text-emerald-500 font-mono tracking-widest uppercase">Görüntü Sistemi Başlatılıyor...</p>
-          </div>
-        )}
-
-        {/* Hold Progress Bar */}
-        {gameState.status === 'playing' && holdProgress > 0 && (
-          <div className="absolute bottom-10 left-1/2 -translate-x-1/2 w-64 h-2 bg-white/20 rounded-full overflow-hidden border border-white/10 backdrop-blur-md">
-            <motion.div 
-              className="h-full bg-emerald-500"
-              initial={{ width: 0 }}
-              animate={{ width: `${holdProgress * 100}%` }}
-            />
           </div>
         )}
 
@@ -244,124 +249,134 @@ const SignAndSpell: React.FC = () => {
         </AnimatePresence>
       </div>
 
-      {/* Right Side: Game UI */}
-      <div className="w-full md:w-[400px] bg-[#111] border-l border-white/10 flex flex-col p-6 overflow-y-auto">
-        <div className="flex items-center justify-between mb-8">
-          <div className="flex items-center gap-2">
-            <Sparkles className="text-emerald-500 w-6 h-6" />
-            <h1 className="text-xl font-black tracking-tighter uppercase italic">İşaret ve Hecele</h1>
-          </div>
-          <div className="bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20">
-            <span className="text-emerald-500 font-mono font-bold text-sm">PUAN: {gameState.score}</span>
-          </div>
+      {/* Top Bar: Score & Title */}
+      <div className="absolute top-0 left-0 right-0 p-6 flex items-center justify-between z-30 bg-gradient-to-b from-black/60 to-transparent">
+        <div className="flex items-center gap-2">
+          <Sparkles className="text-emerald-500 w-6 h-6" />
+          <h1 className="text-xl font-black tracking-tighter uppercase italic drop-shadow-lg">İşaret ve Hecele</h1>
         </div>
+        <div className="bg-black/40 backdrop-blur-md px-4 py-2 rounded-full border border-white/10">
+          <span className="text-emerald-500 font-mono font-bold text-sm">PUAN: {gameState.score}</span>
+        </div>
+      </div>
 
-        {gameState.status === 'idle' ? (
-          <div className="flex-1 flex flex-col items-center justify-center text-center">
-            <div className="w-20 h-20 bg-emerald-500/20 rounded-3xl flex items-center justify-center mb-6 border border-emerald-500/30">
-              <Play className="text-emerald-500 w-10 h-10 fill-emerald-500" />
-            </div>
-            <h2 className="text-2xl font-bold mb-4">Yeteneklerini test etmeye hazır mısın?</h2>
-            <p className="text-white/60 mb-8 leading-relaxed">
-              Hedef kelimenin harflerini ellerinle işaret et. Yakalamak için işaretini sabit tut.
-            </p>
-            <button 
-              onClick={startNewGame}
-              className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition-all active:scale-95 shadow-lg shadow-emerald-900/20"
-            >
-              OYUNU BAŞLAT
-            </button>
-          </div>
-        ) : (
-          <div className="flex-1 flex flex-col">
-            <div className="mb-8">
-              <p className="text-xs font-bold text-white/40 uppercase tracking-widest mb-2">Hedef Kelime</p>
-              <div className="flex gap-2 flex-wrap">
-                {gameState.targetWord.split('').map((char, i) => (
-                  <div 
-                    key={i}
-                    className={`w-12 h-16 rounded-xl flex items-center justify-center text-2xl font-black border-2 transition-all ${
-                      i < gameState.currentLetterIndex 
-                        ? 'bg-emerald-500 border-emerald-400 text-white' 
-                        : i === gameState.currentLetterIndex 
-                          ? 'bg-white/5 border-emerald-500 text-emerald-500 animate-pulse' 
-                          : 'bg-white/5 border-white/10 text-white/20'
-                    }`}
-                  >
-                    {i < gameState.currentLetterIndex ? char : i === gameState.currentLetterIndex ? '?' : ''}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {gameState.status === 'playing' && (
-              <div className="bg-white/5 rounded-2xl p-6 border border-white/10 mb-6">
-                <p className="text-xs font-bold text-white/40 uppercase tracking-widest mb-4">Sıradaki Harf</p>
-                <div className="flex items-center gap-4">
-                  <div className="w-16 h-16 bg-emerald-500/20 rounded-2xl flex items-center justify-center text-4xl font-black text-emerald-500 border border-emerald-500/30">
-                    {gameState.targetWord[gameState.currentLetterIndex]}
-                  </div>
-                  <div>
-                    <p className="font-bold">"{gameState.targetWord[gameState.currentLetterIndex]}" harfini işaret et</p>
-                    <p className="text-sm text-white/40 italic">Yakalamak için elini sabit tut</p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {lastResult && (
-              <motion.div 
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className={`p-4 rounded-xl border mb-6 flex items-start gap-3 ${
-                  lastResult.letter === gameState.targetWord[gameState.currentLetterIndex - 1]
-                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                    : 'bg-red-500/10 border-red-500/30 text-red-400'
-                }`}
-              >
-                {lastResult.letter === gameState.targetWord[gameState.currentLetterIndex - 1] 
-                  ? <CheckCircle2 className="w-5 h-5 shrink-0" /> 
-                  : <XCircle className="w-5 h-5 shrink-0" />
-                }
-                <div>
-                  <p className="font-bold text-sm">
-                    {lastResult.letter === gameState.targetWord[gameState.currentLetterIndex - 1] 
-                      ? 'Doğru!' 
-                      : `Algılanan: ${lastResult.letter || 'Bilinmiyor'}`
-                    }
-                  </p>
-                  <p className="text-xs opacity-80">{lastResult.message}</p>
-                </div>
-              </motion.div>
-            )}
-
-            {gameState.status === 'success' && (
-              <div className="flex-1 flex flex-col items-center justify-center text-center">
-                <Trophy className="w-16 h-16 text-yellow-500 mb-4" />
-                <h2 className="text-2xl font-bold mb-2">Kelime Tamamlandı!</h2>
-                <p className="text-white/60 mb-8">+100 Puan Kazanıldı</p>
-                <button 
-                  onClick={startNewGame}
-                  className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition-all"
-                >
-                  SIRADAKİ KELİME
-                </button>
-              </div>
-            )}
+      {/* Bottom UI Overlay */}
+      <div className="absolute bottom-0 left-0 right-0 z-30 p-2 md:p-4 flex flex-col items-center pointer-events-none">
+        
+        {/* Hold Progress Bar */}
+        {gameState.status === 'playing' && holdProgress > 0 && (
+          <div className="w-48 h-1 bg-white/20 rounded-full overflow-hidden border border-white/5 backdrop-blur-md mb-2 pointer-events-auto">
+            <motion.div 
+              className="h-full bg-emerald-500"
+              initial={{ width: 0 }}
+              animate={{ width: `${holdProgress * 100}%` }}
+            />
           </div>
         )}
 
-        <div className="mt-auto pt-6 border-t border-white/10">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="flex items-center gap-2 text-white/40 text-xs font-bold uppercase tracking-tighter">
-              <Camera className="w-4 h-4" />
-              <span>Görüntü Aktif</span>
+        <div className="w-full max-w-xl pointer-events-auto">
+          {gameState.status === 'idle' ? (
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-black/40 backdrop-blur-xl border border-white/10 rounded-2xl p-4 text-center"
+            >
+              <h2 className="text-lg font-bold mb-2">Yeteneklerini test etmeye hazır mısın?</h2>
+              <button 
+                onClick={startNewGame}
+                className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition-all active:scale-95 text-sm"
+              >
+                OYUNU BAŞLAT
+              </button>
+            </motion.div>
+          ) : gameState.status === 'success' ? (
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="bg-black/40 backdrop-blur-xl border border-white/10 rounded-2xl p-4 text-center"
+            >
+              <h2 className="text-xl font-black mb-2 uppercase tracking-tighter">Kelime Tamamlandı!</h2>
+              <button 
+                onClick={startNewGame}
+                className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition-all text-sm"
+              >
+                SIRADAKİ KELİME
+              </button>
+            </motion.div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {/* Last Result Toast (Compact) */}
+              <AnimatePresence>
+                {lastResult && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    className={`px-3 py-1.5 rounded-xl border backdrop-blur-xl flex items-center gap-2 shadow-2xl mx-auto ${
+                      lastResult.letter === gameState.targetWord[gameState.currentLetterIndex - 1]
+                        ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-400'
+                        : 'bg-red-500/20 border-red-500/30 text-red-400'
+                    }`}
+                  >
+                    {lastResult.letter === gameState.targetWord[gameState.currentLetterIndex - 1] 
+                      ? <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> 
+                      : <XCircle className="w-3.5 h-3.5 shrink-0" />
+                    }
+                    <p className="font-bold text-[10px]">
+                      {lastResult.letter === gameState.targetWord[gameState.currentLetterIndex - 1] 
+                        ? 'Doğru!' 
+                        : `Algılanan: ${lastResult.letter || '?'}`
+                      }
+                    </p>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Main Game Controls (Compact) */}
+              <div className="bg-black/40 backdrop-blur-xl border border-white/10 rounded-2xl p-3 shadow-2xl">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-emerald-500/20 rounded-lg flex items-center justify-center text-xl font-black text-emerald-500 border border-emerald-500/30 shrink-0">
+                      {gameState.targetWord[gameState.currentLetterIndex]}
+                    </div>
+                    <div className="flex gap-1 flex-wrap">
+                      {gameState.targetWord.split('').map((char, i) => (
+                        <div 
+                          key={i}
+                          className={`w-6 h-8 rounded-md flex items-center justify-center text-xs font-black border transition-all ${
+                            i < gameState.currentLetterIndex 
+                              ? 'bg-emerald-500 border-emerald-400 text-white' 
+                              : i === gameState.currentLetterIndex 
+                                ? 'bg-white/10 border-emerald-500 text-emerald-500 animate-pulse' 
+                                : 'bg-white/5 border-white/10 text-white/20'
+                          }`}
+                        >
+                          {i < gameState.currentLetterIndex ? char : i === gameState.currentLetterIndex ? '?' : ''}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="text-right hidden sm:block">
+                    <p className="text-[8px] font-bold text-white/40 uppercase tracking-widest">Sıradaki</p>
+                    <p className="font-bold text-[10px]">"{gameState.targetWord[gameState.currentLetterIndex]}"</p>
+                  </div>
+                </div>
+              </div>
             </div>
-            <div className="flex items-center gap-2 text-white/40 text-xs font-bold uppercase tracking-tighter">
-              <Sparkles className="w-4 h-4" />
-              <span>Gemini 3 Flash</span>
-            </div>
-          </div>
+          )}
+        </div>
+      </div>
+
+      {/* Footer Info */}
+      <div className="absolute bottom-4 left-6 hidden md:flex items-center gap-6 z-30 opacity-40">
+        <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest">
+          <Camera className="w-3 h-3" />
+          <span>Görüntü Aktif</span>
+        </div>
+        <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest">
+          <Sparkles className="w-3 h-3" />
+          <span>Gemini 3 Flash</span>
         </div>
       </div>
     </div>
