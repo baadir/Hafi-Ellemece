@@ -4,59 +4,70 @@
 */
 
 import { GoogleGenAI } from "@google/genai";
-import { AiResponse, DebugInfo, LetterRecognitionResult } from "../types";
+import { AiResponse, DebugInfo, GestureAnalysis } from "../types";
 
-// Initialize Gemini Client
 let ai: GoogleGenAI | null = null;
 
 if (process.env.API_KEY) {
-    ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 } else {
-    console.error("API_KEY is missing from environment variables.");
+  console.error("API_KEY is missing from environment variables.");
 }
 
 const MODEL_NAME = "gemini-3-flash-preview";
 
 export const recognizeLetter = async (
   imageBase64: string,
-  targetLetter: string
+  targetLetter: string,
+  gestureAnalysis?: GestureAnalysis | null
 ): Promise<AiResponse> => {
   const startTime = performance.now();
-  
+
   const debug: DebugInfo = {
     latency: 0,
     screenshotBase64: imageBase64,
-    promptContext: `Target Letter: ${targetLetter}`,
+    promptContext: `Target Letter: ${targetLetter}${gestureAnalysis ? ` | Gesture Analysis: ${JSON.stringify(gestureAnalysis)}` : ""}`,
     rawResponse: "",
     timestamp: new Date().toLocaleTimeString()
   };
 
   if (!ai) {
     return {
-        result: { letter: "", confidence: 0, message: "API Key missing." },
-        debug: { ...debug, error: "API Key Missing" }
+      result: { letter: "", confidence: 0, message: "API Key missing." },
+      debug: { ...debug, error: "API Key Missing" }
     };
   }
 
+  const gestureSummary = gestureAnalysis
+    ? JSON.stringify(gestureAnalysis, null, 2)
+    : "MediaPipe finger analysis unavailable.";
+
   const prompt = `
-    Sen bir Türk İşaret Dili (TİD) uzmanısın. Sağlanan el hareketi görüntüsünü analiz et.
-    Kullanıcı şu harfi işaret etmeye çalışıyor: "${targetLetter}".
-    
-    Görüntüde bir veya iki el olabilir. Türk İşaret Dili'nde bazı harfler tek elle, bazıları iki elle yapılır. 
-    Özellikle parmakların oluşturduğu şekillere odaklan.
-    
-    KRİTİK TALİMAT: Ü, Ö, İ, Ç, Ş, Ğ gibi noktalı veya ek işaretli harfler iki elle yapıldığında tam olarak yakalamak zor olabilir. 
-    Eğer kullanıcı bu harfler için makul bir yakınsama/deneme yapıyorsa (örneğin Ü için U işaretine ek olarak parmaklarını oynatıyorsa veya iki elini yaklaştırıyorsa), bunu kabul et ve yüksek güven puanı ver.
-    
-    Hangi harfin (A-Z, Ç, Ğ, İ, Ö, Ş, Ü dahil) işaret edildiğini belirle.
-    Eğer hedef harfe yakınsa teşvik edici bir mesaj yaz.
-    
-    Sadece ham JSON döndür. Markdown kullanma. Kod blokları kullanma.
-    JSON yapısı:
+    You are an expert in Turkish Sign Language finger spelling.
+    The user is trying to sign this target letter: "${targetLetter}".
+
+    You will receive:
+    1. The camera image.
+    2. MediaPipe-derived hand analysis with hand count, finger open/closed states, pinch strength, and hand proximity.
+
+    Treat the MediaPipe hand analysis as an important signal, especially for finger-state reasoning.
+
+    MediaPipe hand analysis:
+    ${gestureSummary}
+
+    Decision rules:
+    - Focus on finger states first: thumb, index, middle, ring, pinky.
+    - For two-handed signs, use whether both hands are visible, how close they are, and which fingers are extended.
+    - For letters with diacritics such as Ö and Ü, be tolerant.
+    - If the base handshape strongly looks like O/U and the second hand seems to be adding the two-dot modifier approximately, you may return Ö/Ü with high confidence.
+    - Do not require a perfect two-dot pose for Ö/Ü. A reasonable two-handed approximation should still be accepted.
+    - If the gesture is close to the target letter, prefer the target letter over a strict but brittle interpretation.
+
+    Return only raw JSON with this shape:
     {
-      "letter": "HARF",
-      "confidence": 0.0-1.0,
-      "message": "Kısa geri bildirim mesajı"
+      "letter": "LETTER",
+      "confidence": 0.0,
+      "message": "Short feedback"
     }
   `;
 
@@ -67,59 +78,56 @@ export const recognizeLetter = async (
       model: MODEL_NAME,
       contents: {
         parts: [
-            { text: prompt },
-            { 
-              inlineData: {
-                mimeType: "image/png",
-                data: cleanBase64
-              } 
+          { text: prompt },
+          {
+            inlineData: {
+              mimeType: "image/png",
+              data: cleanBase64
             }
+          }
         ]
       },
       config: {
         maxOutputTokens: 512,
         temperature: 0.2,
-        responseMimeType: "application/json" 
+        responseMimeType: "application/json"
       }
     });
 
-    const endTime = performance.now();
-    debug.latency = Math.round(endTime - startTime);
-    
+    debug.latency = Math.round(performance.now() - startTime);
+
     let text = response.text || "{}";
     debug.rawResponse = text;
-    
-    const firstBrace = text.indexOf('{');
-    const lastBrace = text.lastIndexOf('}');
+
+    const firstBrace = text.indexOf("{");
+    const lastBrace = text.lastIndexOf("}");
     if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-        text = text.substring(firstBrace, lastBrace + 1);
-    } 
+      text = text.substring(firstBrace, lastBrace + 1);
+    }
 
     try {
-        const json = JSON.parse(text);
-        debug.parsedResponse = json;
-        
-        return {
-            result: {
-                letter: (json.letter || "").toUpperCase(),
-                confidence: Number(json.confidence) || 0,
-                message: json.message
-            },
-            debug
-        };
+      const json = JSON.parse(text);
+      debug.parsedResponse = json;
 
+      return {
+        result: {
+          letter: (json.letter || "").toUpperCase(),
+          confidence: Number(json.confidence) || 0,
+          message: json.message
+        },
+        debug
+      };
     } catch (e: any) {
-        return {
-            result: { letter: "", confidence: 0, message: "Parse error" },
-            debug: { ...debug, error: `JSON Parse Error: ${e.message}` }
-        };
+      return {
+        result: { letter: "", confidence: 0, message: "Parse error" },
+        debug: { ...debug, error: `JSON Parse Error: ${e.message}` }
+      };
     }
   } catch (error: any) {
-    const endTime = performance.now();
-    debug.latency = Math.round(endTime - startTime);
+    debug.latency = Math.round(performance.now() - startTime);
     return {
-        result: { letter: "", confidence: 0, message: "API Error" },
-        debug: { ...debug, error: error.message || "Unknown API Error" }
+      result: { letter: "", confidence: 0, message: "API Error" },
+      debug: { ...debug, error: error.message || "Unknown API Error" }
     };
   }
 };

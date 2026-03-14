@@ -14,6 +14,29 @@ export interface LetterRecognitionResult {
   message?: string;
 }
 
+export interface FingerState {
+  thumb: boolean;
+  index: boolean;
+  middle: boolean;
+  ring: boolean;
+  pinky: boolean;
+}
+
+export interface HandAnalysis {
+  handedness: 'Left' | 'Right' | 'Unknown';
+  fingerState: FingerState;
+  extendedCount: number;
+  pinchStrength: number;
+  indexMiddleGap: number;
+  handCenter: Point;
+}
+
+export interface GestureAnalysis {
+  handCount: number;
+  hands: HandAnalysis[];
+  handsCloseTogether: boolean;
+}
+
 export interface GameState {
   targetWord: string;
   currentLetterIndex: number;
