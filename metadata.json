@@ -1,0 +1,7 @@
+{
+  "name": "İşaret ve Hecele",
+  "description": "El hareketlerine dayalı bir kelime oluşturma oyunu. Türk İşaret Dili (TİD) kullanarak kelimeleri heceleyin ve Gemini 3 Flash'ın işaretlerinizi tanımasını sağlayın. İki el desteği mevcuttur.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}

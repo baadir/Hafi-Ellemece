@@ -1,0 +1,12 @@
+@import "tailwindcss";
+
+body {
+  margin: 0;
+  background-color: #0a0a0a;
+  color: #e3e3e3;
+  overflow: hidden;
+}
+
+.mirror {
+  transform: scaleX(-1);
+}
